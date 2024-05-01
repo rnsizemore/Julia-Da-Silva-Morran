@@ -1,3 +1,4 @@
+import Plots
 # parameters
 IL = 30             # num. of host interaction loci
 L = IL + 1          # num. of host loci
@@ -9,7 +10,7 @@ N = 1500            # host pop.
 r = 0.5             # recombination rate
 ngens = 30          # num. of generations
 npgens = 1          # parasite gen. per host gen.
-nreps = 1           # num. of simulations to run
+nreps = 10           # num. of simulations to run
 
 # variables
 hosts = zeros(Int, N, L)                                    # holds value for each locus in each individual
@@ -29,6 +30,7 @@ fix = false                                                 # flag for fixation 
 nfix = 0                                                    # number of simulations where recombination allele fixates
 gfix = zeros(Int, nreps)                                    # stores the generation where recombination allele comes to fixation
 frecomb = Array{Float64}(undef, nreps)                          # freq. of recombination allele at end of simulation run
+genrecomb = Array{Float64}(undef, ngens)                        # freq. of recombination allele at each generation
 hostMutantAlleleFreq = Array{Float64}(undef, nreps, ngens, L)   # host mutant allele freq. for each generation of a simulation run
 meanf = Array{Float64}(undef, ngens, L)                         # mean host mutant allele freq. over all simulation runs
 iFixCount = zeros(Int, nreps, L-1)                          # number of simulation runs where each locus has fixation
@@ -40,6 +42,14 @@ printc = false      # flag to print information
 random_genomes = rand(Float64, Int(N/2))    # random number for inital freq of mutant allele
 
 for k = rep:nreps
+    # reinitalize things
+    global hosts = zeros(Int, N, L)                                    # holds value for each locus in each individual
+    global hostsnew = zeros(Int, N, L)                                 # holds hosts value for next generation
+    global temp = Array{Int}(undef, L)                                 # temp holder for an individuals genes
+    global host0 = zeros(L)                                            # freq. of mutant allele in population at each locus
+    global host1 = zeros(L)                                            # freq. of wild type allele in population at each locus
+    global para0 = zeros(L-1)                                            # freq. of parasite mutant allele
+    global para1 = zeros(L-1)                                            # freq. of parasite wild type allele
     
     # logic for printing when running many repetitions of the simulation
     if(nreps <= 10) # print every run if doing less than 10
@@ -56,10 +66,12 @@ for k = rep:nreps
         end
     end
     if(printc)
-        print("rep ", rep)
+        print("rep ", k)
     end
-
-    hosts[1:Int(N*initfr), 1] .= 1      # put inital recomb allele in with initfr freq.
+    for i = 1:Int(N*initfr) # put inital recomb allele in with initfr freq.
+        hosts[i, 1] = 1
+    end  
+    print(sum(hosts[:, 1]))
 
     if(standing) # create standing variation
         for i = 2:L
@@ -131,8 +143,8 @@ for k = rep:nreps
                 for j = 1:L-1
                     if(rand() <= r) # 0.5 chance at each locus to swap between pairs
                         global temp = hosts[2*i, :]
-                        hosts[2*i, j:L] = hosts[2*i - 1, j:L]
-                        hosts[2*i - 1, j:L] = temp[j:L]
+                        hosts[2*i, j+1:L] = hosts[2*i - 1, j+1:L]
+                        hosts[2*i - 1, j+1:L] = temp[j+1:L]
                     end
                 end
             end
@@ -162,7 +174,7 @@ for k = rep:nreps
             host0[i] = 1 - host1[i]
         end
         hostMutantAlleleFreq[rep, gen, :] .= host1  # store mutant allele freq.
-        frecomb[rep] = host1[1]     # store ending freq. of recombination allele
+        frecomb[rep] = sum(host1[1, :])     # store ending freq. of recombination allele
 
         if(!fix && host1[1] > 0.99)
             global fix = true
@@ -181,7 +193,7 @@ for k = rep:nreps
                 iPrevFix = 0
             end
         end
-
+        genrecomb[gen] = sum(hosts[1, :])         # add this generation's recomb allele freq. to genrecomb
     end
 end
 
@@ -195,3 +207,11 @@ if(nfix > 0)
     println("Mean no. of generations to fixation: ", sum(gfix) / nfix)
 end
 println("Mean freq of recomb allele: ", sum(frecomb) / nreps)
+
+meanf = sum(hostMutantAlleleFreq[:])
+print(frecomb)
+
+using Plots
+testPlot = plot(1:nreps, frecomb)
+display(testPlot)
+readline()
