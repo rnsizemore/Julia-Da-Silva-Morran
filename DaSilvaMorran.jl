@@ -1,4 +1,5 @@
 import Plots
+using Statistics
 # parameters
 IL = 30             # num. of host interaction loci
 L = IL + 1          # num. of host loci
@@ -6,11 +7,11 @@ initfr = 0.2        # inital freq. of recomb. allele
 standing = true     # create standing genetic variation
 s = 0.8             # max selection coeff.
 u = 0.0001          # mutation rate per locus
-N = 1500            # host pop.
+N = 750            # host pop.
 r = 0.5             # recombination rate
 ngens = 30          # num. of generations
 npgens = 1          # parasite gen. per host gen.
-nreps = 10           # num. of simulations to run
+nreps = 50           # num. of simulations to run
 
 # variables
 hosts = zeros(Int, N, L)                                    # holds value for each locus in each individual
@@ -30,7 +31,8 @@ fix = false                                                 # flag for fixation 
 nfix = 0                                                    # number of simulations where recombination allele fixates
 gfix = zeros(Int, nreps)                                    # stores the generation where recombination allele comes to fixation
 frecomb = Array{Float64}(undef, nreps)                          # freq. of recombination allele at end of simulation run
-genrecomb = Array{Float64}(undef, ngens)                        # freq. of recombination allele at each generation
+genrecomb = Array{Float64}(undef, ngens)                        # average freq. of recombination allele at each generation over the replicates
+genrecombarr = Array{Float64}(undef, ngens, nreps)              # stores the array of values of recomb. freq. at each generation
 hostMutantAlleleFreq = Array{Float64}(undef, nreps, ngens, L)   # host mutant allele freq. for each generation of a simulation run
 meanf = Array{Float64}(undef, ngens, L)                         # mean host mutant allele freq. over all simulation runs
 iFixCount = zeros(Int, nreps, L-1)                          # number of simulation runs where each locus has fixation
@@ -41,7 +43,7 @@ pgen = 1            # current parasite generation count
 printc = false      # flag to print information
 random_genomes = rand(Float64, Int(N/2))    # random number for inital freq of mutant allele
 
-for k = rep:nreps
+for rep = 1:nreps
     # reinitalize things
     global hosts = zeros(Int, N, L)                                    # holds value for each locus in each individual
     global hostsnew = zeros(Int, N, L)                                 # holds hosts value for next generation
@@ -66,12 +68,11 @@ for k = rep:nreps
         end
     end
     if(printc)
-        print("rep ", k)
+        print("rep ", rep, "\n")
     end
     for i = 1:Int(N*initfr) # put inital recomb allele in with initfr freq.
         hosts[i, 1] = 1
-    end  
-    print(sum(hosts[:, 1]))
+    end
 
     if(standing) # create standing variation
         for i = 2:L
@@ -105,7 +106,7 @@ for k = rep:nreps
         global w = ones(N)          # intitalize individual fitnesses
         for i = 1:N
             for j = 1:L-1
-                w[i] = w[i] * ( w0[j] * ( 1 - hosts[i, j] ) ) + w1[j] * hosts[i, j] # calculate individual fitnesses
+                w[i] = w[i] * ( w0[j] * ( 1 - hosts[i, j+1] ) ) + w1[j] * hosts[i, j+1] # calculate individual fitnesses
             end
         end
 
@@ -121,18 +122,16 @@ for k = rep:nreps
         end
         
         for i = 1:N     # select random host haplotypes to go to next generation
-            randomNum = Int(round(rand(1:N), RoundUp))
+            randomNum = rand(1:N)
             if(rand() <= w[randomNum])
                 hostsnew[i, :] = hosts[randomNum, :]
             end
         end
         global hosts = hostsnew
-        
         # mutation
         for i = 1:N
             for j = 1:L # loop through loci in all individuals
-                mutateTest = rand()
-                if(mutateTest <= u) # if random num is less than mutation rate
+                if(rand() <= u) # if random num is less than mutation rate
                     hosts[i, j] = abs(hosts[i, j] - 1)  # flip the allele of the locus
                 end
             end
@@ -149,7 +148,7 @@ for k = rep:nreps
                 end
             end
         end
-
+        
         # parasites
         for i = 1:L-1   # calculate parasite fitness
             wp0[i] = 1 - s*host1[i+1]
@@ -174,15 +173,15 @@ for k = rep:nreps
             host0[i] = 1 - host1[i]
         end
         hostMutantAlleleFreq[rep, gen, :] .= host1  # store mutant allele freq.
-        frecomb[rep] = sum(host1[1, :])     # store ending freq. of recombination allele
-
+        frecomb[rep] = host1[1]     # store ending freq. of recombination allele
+        
         if(!fix && host1[1] > 0.99)
             global fix = true
             global nfix += 1
             gfix[rep] = gen
             break
         end
-
+        
         for i = 1:L-1
             if(host1[i+1] > 0.99 && iPrevFix == 0)
                 iFixCount[rep, :] = iFixCount[rep, :] .+ 1
@@ -193,10 +192,15 @@ for k = rep:nreps
                 iPrevFix = 0
             end
         end
-        genrecomb[gen] = sum(hosts[1, :])         # add this generation's recomb allele freq. to genrecomb
+        genrecomb[gen] += host1[1]/nreps         # add this generation's recomb allele freq. to genrecomb
+        genrecombarr[gen, rep] = host1[1]        # add this generation's recomb allele freq. to genrecombarr
     end
 end
 
+genrecombstd = Array{Float64}(undef, ngens)
+for i = 1:ngens
+    genrecombstd[i] = std(genrecombarr[i, :])
+end
 println("\nFixations at Host Interaction Loci")
 println("No. of fixations/locus/gen: ",  sum(iFixCount) / (IL * nreps) / ngens)
 println("Apparent no. of fixations/locus/gen: ", count(hostMutantAlleleFreq[:, ngens, 2:L] .> 0.99) / (nreps * IL) / ngens, "\n")
@@ -209,9 +213,11 @@ end
 println("Mean freq of recomb allele: ", sum(frecomb) / nreps)
 
 meanf = sum(hostMutantAlleleFreq[:])
-print(frecomb)
+@show genrecombarr
+@show genrecombstd
+@show maximum(genrecombarr)
 
 using Plots
-testPlot = plot(1:nreps, frecomb)
+testPlot = plot(1:ngens, genrecomb, yerror = genrecombstd)
 display(testPlot)
 readline()
