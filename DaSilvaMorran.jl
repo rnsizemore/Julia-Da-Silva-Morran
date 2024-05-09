@@ -213,9 +213,7 @@ end
 println("Mean freq of recomb allele: ", sum(frecomb) / nreps)
 
 meanf = sum(hostMutantAlleleFreq[:])
-@show genrecombarr
 @show genrecombstd
-@show maximum(genrecombarr)
 
 using Plots
 testPlot = plot(1:ngens, genrecomb, yerror = genrecombstd)
