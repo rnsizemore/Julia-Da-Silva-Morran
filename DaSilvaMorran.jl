@@ -50,7 +50,7 @@ printc = false      # flag to print information
 #random_genomes = rand(Float64, Int(N[1]/2))    # random number for inital freq of mutant allele
 #global 
 printc = nreps <= 10 # print every run if doing less than 10
-for scen in 1:3yu
+for scen in 1:3
     # local initialization steps for each scenario
     N = NArray[scen]
     r = rArray[scen]
