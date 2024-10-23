@@ -4,28 +4,36 @@ using CSV
 using DataFrames
 using Random
 using Distributions
+using StatsBase
 # parameters
-treatment = 0       # 0 - control 1 - evolution 2 - coevolution
+treatment = 2       # 0 - control 1 - evolution 2 - coevolution
 IL = 30             # num. of host interaction loci
 L = IL + 1          # num. of host loci
-initfr = 0.1        # inital freq. of males
+initfr = 0.2        # inital freq. of males
 standing = true     # create standing genetic variation
 s = 0.8             # max selection coeff.
-u = 10^-4          # mutation rate per locus
+u = 10^-4           # mutation rate per locus
 NArray = [1500, 750, 750]            # host pop.
 rArray = [0.5, 0.5, 0.1]             # recombination rate
 ngens = 30          # num. of generations
 npgens = 1          # parasite gen. per host gen.
-nreps = 10           # num. of simulations to run
-nscens = 3
-pnd = 0.01         # prob. of x-chromosome nondisjunction
+nreps = 5           # num. of simulations to run
+nscens = 3 
+pnd = 0.1           # prob. of x-chromosome nondisjunction
+h = 1               # dominance of alleles
+h_recomb = 0.5      # dominance of recombination allele
+dlt = 1             # phenotypic distance between alleles
 
 # variables
-hosts = zeros(Int, NArray[1], L)                            # holds value for each locus in each individual
-hostsnew = zeros(Int, NArray[1], L)                         # holds hosts value for next generation
+hosts = zeros(Int, NArray[1], L)                            # holds value for each locus in each genome
+phenarr0 = zeros(Float64, NArray[1], L)                         # holds value for phenotype of each locus in each individual, wild type 0
+phenarr1 = zeros(Float64, NArray[1], L)                         # holds value for phenotype of each locus in each individual, wild type 1
+hostsnew = zeros(Float64, NArray[1], L)                         # holds hosts value for next generation
 temp = Array{Int}(undef, L)                                 # temp holder for an individuals genes
 host0 = zeros(L)                                            # freq. of mutant allele in population at each locus
 host1 = zeros(L)                                            # freq. of wild type allele in population at each locus
+phen0 = zeros(L)
+phen1 = zeros(L)
 para0 = zeros(L-1)                                          # freq. of parasite mutant allele
 para1 = zeros(L-1)                                          # freq. of parasite wild type allele
 w0 = Array{Float64}(undef, L)                               # host allele fitness for mutant alleles
@@ -33,7 +41,6 @@ w1 = Array{Float64}(undef, L)                               # host allele fitnes
 wp0 = Array{Float64}(undef, L-1)                            # parasite mutant allele fitnesses
 wp1 = Array{Float64}(undef, L-1)                            # parasite wild type allele fitnesses
 wp_bar = Array{Float64}(undef, L-1)                         # parasite mean fitness
-w = Array{Float64}(undef, NArray[1])                        # individual host fitnesses
 fix = false                                                 # flag for fixation of recombination allele
 nfix = 0                                                    # number of simulations where recombination allele fixates
 gfix = zeros(Int, nreps)                                    # stores the generation where recombination allele comes to fixation
@@ -42,9 +49,12 @@ indiv_vector = zeros(Int, 750)                              # vector of individu
 genrecomb = zeros(Float64, ngens+1, nscens)                 # average freq. of recombination allele at each generation over the replicates
 genrecombarr = zeros(Float64, ngens+1, nreps, nscens)       # stores the array of values of recomb. freq. at each generation
 genrecombstd = zeros(Float64, ngens+1, nscens)                    # stores standard deviation of replicates recomb. freq.
-malefreq = zeros(Float64, ngens+1, nscens)                  # average male freq. at each gerneration over the replicates
-malefreqarr = zeros(Float64, ngens+1, nreps, nscens)       # stores the array of values of recomb. freq. at each generation
-malefreqstd = zeros(Float64, ngens+1, nscens)                    # stores standard deviation of replicates recomb. freq.
+malefreq = zeros(Float64, ngens+1, nscens)                  # average male freq. at each generation over the replicates
+malefreqarr = zeros(Float64, ngens+1, nreps, nscens)       # stores the array of values of male. freq. at each generation
+malefreqstd = zeros(Float64, ngens+1, nscens)                    # stores standard deviation of replicates male freq.
+outcross = zeros(Float64, ngens+1, nscens)                  # average outcrossing rate at each generation over the replicates
+outcrossarr = zeros(Float64, ngens+1, nreps, nscens)       # stores the array of values of outcrossing rate at each generation
+outcrossstd = zeros(Float64, ngens+1, nscens)                    # stores standard deviation of replicates outcrossing rate
 hostMutantAlleleFreq = Array{Float64}(undef, nreps, ngens+1, L)   # host mutant allele freq. for each generation of a simulation run
 meanf = Array{Float64}(undef, ngens+1, L)                         # mean host mutant allele freq. over all simulation runs
 iFixCount = zeros(Int, nreps, L-1)                          # number of simulation runs where each locus has fixation
@@ -53,7 +63,6 @@ rep = 1             # current simulation count
 gen = 1             # current generation count 
 scen = 1            # current scenario
 pgen = 1            # current parasite generation count
-printc = false      # flag to print information
 #random_genomes = rand(Float64, Int(N[1]/2))    # random number for inital freq of mutant allele
 #global 
 printc = nreps <= 10 # print every run if doing less than 10
@@ -78,11 +87,13 @@ for scen in 1:3
         end
         hosts = Array{Int}(undef, N, L)
         n_indivs = round(Int,N/2)
+        w = Array{Float64}(undef, n_indivs)
         n_males = round(Int, ceil(n_indivs * initfr))
         indiv_vector = zeros(Int, n_indivs)
         indiv_vector[1:n_males] .= 1 # set inital fraction of males to the same frequency of recomb allele 
         shuffle!(indiv_vector)
-        hosts[:, 1] =  rand(Bernoulli(2*initfr),N)
+        freqm = sum(indiv_vector)/n_indivs
+        hosts[:, 1] =  rand(Bernoulli(initfr),N)
         if standing
             hosts[:, 2:L] = rand(0:1, N, IL)
         else
@@ -95,7 +106,8 @@ for scen in 1:3
         # initialization of data collection structures
         gen = 1
         genrecomb[gen, scen] += host1[1] / nreps          # add generation 0's recomb allele freq. to genrecomb
-        malefreq[gen, scen] += sum(indiv_vector)/(n_indivs*nreps) # add generation 0's male freq. to malefreq
+        malefreq[gen, scen] += freqm/nreps # add generation 0's male freq. to malefreq
+        outcross[gen, scen] += 2*(freqm-pnd)/nreps # add generation 0 outcrossing rate
         #if genrecomb[gen,scen]>1 || genrecomb[gen,scen]<0
         #    error("Out of range value in genrecomb[$gen,$scen]")
         #end
@@ -113,34 +125,65 @@ for scen in 1:3
             #print("\n Gen #", gen, "\n")
             #print("Start of gen: ", sum(hosts[:, 1])/N, "\n")
             if treatment != 0
-                #for i = 2:L
-                    @. w0[2:L] = 1 - s*para0  # wild type allele fitness
-                    @. w1[2:L] = 1 - s*para1  # mutant allele fitness
-                #end
-                w = ones(N)          # intitalize individual fitnesses
-                for i = 1:N
+                @. w0[2:L] = 1 - s*para0  # wild type allele fitness
+                @. w1[2:L] = 1 - s*para1  # mutant allele fitness
+                #print("start phenotype calc")
+                # generate phenotype arr
+                for i = 1:n_indivs
+                    ind_i = i * 2 - 1
                     for j = 2:L
-                        w[i] = w[i] * ( w0[j] * ( 1 - hosts[i, j] ) + w1[j] * hosts[i, j] ) # calculate individual fitnesses
+                        phenarr1[i, j] = dlt*(2*h*middle(hosts[ind_i, j], hosts[ind_i+1, j]) + (1-2*h)*hosts[ind_i, j]*hosts[ind_i+1, j])
+                    end
+                    for j = 2:L
+                        phenarr0[i, j] = dlt*(2*h*middle((1-hosts[ind_i, j]), (1-hosts[ind_i+1, j])) + (1-2*h)*(1-hosts[ind_i, j])*(1-hosts[ind_i+1, j]))
                     end
                 end
+                # generate phenotype for recomb allele
+                for i = 1:n_indivs
+                    ind_i = i * 2 - 1
+                    phenarr1[i, 1] = dlt*(2*h_recomb*middle(hosts[ind_i, 1], hosts[ind_i+1, 1]) + (1-2*h_recomb)*hosts[ind_i, 1]*hosts[ind_i+1, 1])
+                    phenarr0[i, 1] = dlt*(2*h_recomb*middle((1-hosts[ind_i, 1]), (1-hosts[ind_i+1, 1])) + (1-2*h_recomb)*(1-hosts[ind_i, 1])*(1-hosts[ind_i+1, 1]))
+                end
+                for i = 1:L     # each item in host1 is freq. of mutant allele at each locus, each item host0 is wild type allele freq. at each locus
+                    phen1[i] = sum(phenarr1[:, i])/n_indivs
+                    phen0[i] = 1.0 - phen1[i]
+                end
+                #phen0 .= sum(phenarr0[:, 2:L])/n_indivs
+                #phen1 .= sum(phenarr1[:, 2:L])/n_indivs
+                #print("start fitness calc")
+                w = ones(n_indivs)          # intitalize individual fitnesses
+                for i = 1:n_indivs
+                    #@show phenarr1
+                    #@show phenarr2
+                    for j = 2:L
+                        w[i] = w[i] * ( w0[j] * phenarr0[i, j] + w1[j] * phenarr1[i, j] ) # calculate individual fitnesses
+                    end
+                end
+                #print("finish fitness calc")
             else
                 w = ones(N)
             end
             #@show maximum(w)
-            @. wp0 = 1.0 - s*host1[2:L]
-            @. wp1 = 1.0 - s*host0[2:L]
+            @. wp0 = 1.0 - s*phen1[2:L]
+            @. wp1 = 1.0 - s*phen0[2:L]
 
             # host reproduction and selection
             wMax = maximum(w)
             @. w = w / wMax   # calculate relative fitnesses
             #print("started loop\n")
             #@show indiv_vector
-            freqm = sum(indiv_vector)/n_indivs
             temp_vector = zeros(Int, n_indivs)
+            hermaphrodite_ind = findall(x -> x == 0, indiv_vector)
+            male_ind = findall(x -> x == 1, indiv_vector)
+            w_male = deleteat!(copy(w), hermaphrodite_ind)    # vector of male fitnesses
+            w_herm = deleteat!(copy(w), male_ind)    # vector of hermaphrodite fitnesses
             for i = 1:2:N
                 ind_i = round(Int,ceil(i / 2))
                 # index of sampled hermaphrodite
-                h_sample_ind = rand(findall(x -> x == 0, indiv_vector))
+                #print("start h sample")
+                h_sample_ind = sample(hermaphrodite_ind, weights(w[hermaphrodite_ind]))
+                #@show w[h_sample_ind]
+                #print("finish h sample")
                 # index of sampled hermaphrodite genome
                 h_sample = 2 * (h_sample_ind - 1) + rand(1:2)
                 #print("finish h sample\n")
@@ -148,7 +191,7 @@ for scen in 1:3
                     #print("start outcrossing\n")
                     #@show freqm
                     # index of sampled male
-                    m_sample_ind = rand(findall(x -> x == 1, indiv_vector))
+                    m_sample_ind = sample(male_ind, weights(w[male_ind]))
                     # index of sampled male genome
                     m_sample = 2 * (m_sample_ind - 1) + rand(1:2) 
                     #print("finish m sample\n")
@@ -159,7 +202,11 @@ for scen in 1:3
                             hostsnew[i + 1, j+1:L] = hosts[h_sample, j+1:L]
                         end
                     end
-                    temp_vector[ind_i] = rand(0:1) # 50/50 male or hermaphrodite individual
+                    if rand() <= (0.5 + pnd)
+                        temp_vector[ind_i] = 1
+                    else
+                        temp_vector[ind_i] = 0
+                    end
                     #print("finish outcrossing\n")
                 else
                     #selfing
@@ -265,17 +312,21 @@ for scen in 1:3
                 end
             end
             #print("before: ", genrecomb[gen+1, scen], "\n")
+
+            outcross[gen+1, scen] += 2*(freqm-pnd)/nreps
             malefreq[gen+1, scen] += freqm/nreps
-            genrecomb[gen+1, scen] += host1[1]/nreps         # add this generation's recomb allele freq. to genrecomb
+            genrecomb[gen+1, scen] += phen1[1]/nreps         # add this generation's recomb allele phenotype freq. to genrecomb
             #if genrecomb[gen+1,scen]>1 || genrecomb[gen+1,scen]<-1
             #    error("Out of range value in genrecomb[$(gen+1),$scen]")
             #end
-            genrecombarr[gen+1, rep, scen] = host1[1]        # add this generation's recomb allele freq. to genrecombarr
+            outcrossarr[gen+1, rep, scen] = 2*(freqm-pnd)
+            genrecombarr[gen+1, rep, scen] = phen1[1]        # add this generation's recomb allele phenotype freq. to genrecombarr
             malefreqarr[gen+1, rep, scen] = freqm
             #print("End of gen: ", sum(hosts[:, 1])/N, "\n")
         end
     end
     for i = 0:ngens
+        outcrossstd[i+1] = std(outcrossarr[i+1, :, scen])
         genrecombstd[i+1] = std(genrecombarr[i+1, :, scen])
         malefreqstd[i+1] = std(malefreqarr[i+1, :, scen])
     end
@@ -301,14 +352,13 @@ genrecomb = Matrix(CSV.read("nreps100_ngens30_control.CSV", DataFrame))
 
 labels = reshape(map((x,y)->"N=$x, r=$y",NArray,rArray),1,nscens)
 gr()
-testPlot = plot(0:ngens, genrecomb,label=labels,plot_title="$nreps reps per scenario",
+testPlot = plot(0:ngens, outcross,label=labels,plot_title="$nreps reps per scenario, pnd = $pnd",
                 xlabel="Generation",ylabel="Frequency",ylims=(0,1));
 #plot!(genrecomb[:, 2])
 #plot!(genrecomb[:, 3])
 #ylims!(testPlot,0, 1)
 #xlabel!(testPlot,"Generation")
 #ylabel!(testPlot,"Frequency")
-
 
 display(testPlot)
 #readline()
