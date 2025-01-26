@@ -7,7 +7,7 @@ include("DaSilvaMorranDistributed.jl")
 # julia .\DaSilvaMorranJob.jl 5 100 2 0.8 0.0001 30 0.1 1 1 1
 #                      workers^       s^   u^          h^   ^recomb_scen
 #                          nreps^           ngens^        ^h_recomb
-#                          treatment^             pnd^
+#                          treatment^             pnd^        
 @everywhere using Plots
 @everywhere using Dates
 @everywhere using Statistics
@@ -361,7 +361,7 @@ nscens = 3
         println("\n")
     end
     # return variables we want to save
-    return (nrep=nrep, scen1=genrecomb[:, 1], scen2=genrecomb[:, 2], scen3=genrecomb[:, 3])
+    return (nrep=nrep, genrecomb1=genrecomb[:, 1], genrecomb2=genrecomb[:, 2], genrecomb3=genrecomb[:, 3], outcross1=outcross[:, 1], outcross2=outcross[:, 2], outcross3=outcross[:, 3], male1=w_male[:, 1], male2=w_male[:, 2], male3=w_male[:, 3], herm1=w_herm[:, 1], herm2=w_herm[:, 2], herm3=w_herm[:, 3])
 end
 
 # start running the event loop on workers
@@ -376,17 +376,54 @@ end
 submit_jobs(jobs)
 
 n = length(jobs)
-csvfile = "$(Dates.today())_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+recombcsvfile = "$(Dates.today())_genrecomb_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+# if a file with same name exists, add a number to distinguish it
+if isfile(recombcsvfile)
+    num = 2
+    while(isfile(recombcsvfile))
+        global recombcsvfile = "$(Dates.today())_$(num)_genrecomb_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+        global num += 1
+    end
+end
+outcrosscsvfile = "$(Dates.today())_outcross_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+if isfile(outcrosscsvfile)
+    num = 2
+    while(isfile(outcrosscsvfile))
+        global outcrosscsvfile = "$(Dates.today())_$(num)_outcross_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+        global num += 1
+    end
+end
+malefitcsvfile = "$(Dates.today())_malefit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+if isfile(malefitcsvfile)
+    num = 2
+    while(isfile(malefitcsvfile))
+        global malefitcsvfile = "$(Dates.today())_$(num)_malefit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+        global num += 1
+    end
+end
+hermfitcsvfile = "$(Dates.today())_hermfit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+if isfile(hermfitcsvfile)
+    num = 2
+    while(isfile(hermfitcsvfile))
+        global hermfitcsvfile = "$(Dates.today())_$(num)_hermfit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
+        global num += 1
+    end
+end
 for i in 1:n
     results = take!(resultsqueue)
     @info "Obtained result ($i/$n)" pairs(results)
-    # can generate columns labels, which leads to data all being put in 1 row rather than 1 column
-    #colnames = Any["scen", "nrep"]
-    #for gen = 0:ngens
-    #    push!(colnames, "gen$(gen)")
-    #end
-    for scen in nscens
-        CSV.write(csvfile, Tables.table(vcat(["scen$(scen)",results.nrep],results[1+scen])); append=isfile(csvfile), writeheader=false)
+    # generate column labels
+    colnames = Any["scen", "nrep"]
+    for gen = 0:ngens
+        push!(colnames, "gen$(gen)")
+    end
+    # fitness data has no generation 0, so remove that column name
+    fitcolnames = deleteat!(copy(colnames), 3)
+    for scen in 1:nscens
+        CSV.write(recombcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[1+scen])), colnames); append=isfile(recombcsvfile))
+        CSV.write(outcrosscsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[4+scen])), colnames); append=isfile(outcrosscsvfile))
+        CSV.write(malefitcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[7+scen])), fitcolnames); append=isfile(malefitcsvfile))
+        CSV.write(hermfitcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[10+scen])), fitcolnames); append=isfile(hermfitcsvfile))
     end
 end
 stop_workers()
