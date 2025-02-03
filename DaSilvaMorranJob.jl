@@ -376,49 +376,26 @@ end
 submit_jobs(jobs)
 
 n = length(jobs)
-recombcsvfile = "$(Dates.today())_genrecomb_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-# if a file with same name exists, add a number to distinguish it
-if isfile(recombcsvfile)
-    num = 2
-    while(isfile(recombcsvfile))
-        global recombcsvfile = "$(Dates.today())_$(num)_genrecomb_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-        global num += 1
-    end
+
+date = Dates.format(now(), "YYYY-mm-dd-HH-MM")
+plotname = "pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)"
+
+recombcsvfile = "$(date)_genrecomb_$(plotname).csv"
+outcrosscsvfile = "$(date)_outcross_$(plotname).csv"
+malefitcsvfile = "$(date)_malefit_$(plotname).csv"
+hermfitcsvfile = "$(date)_hermfit_$(plotname).csv"
+
+# generate column labels
+colnames = Any["scen", "nrep"]
+for gen = 0:ngens
+    push!(colnames, "gen$(gen)")
 end
-outcrosscsvfile = "$(Dates.today())_outcross_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-if isfile(outcrosscsvfile)
-    num = 2
-    while(isfile(outcrosscsvfile))
-        global outcrosscsvfile = "$(Dates.today())_$(num)_outcross_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-        global num += 1
-    end
-end
-malefitcsvfile = "$(Dates.today())_malefit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-if isfile(malefitcsvfile)
-    num = 2
-    while(isfile(malefitcsvfile))
-        global malefitcsvfile = "$(Dates.today())_$(num)_malefit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-        global num += 1
-    end
-end
-hermfitcsvfile = "$(Dates.today())_hermfit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-if isfile(hermfitcsvfile)
-    num = 2
-    while(isfile(hermfitcsvfile))
-        global hermfitcsvfile = "$(Dates.today())_$(num)_hermfit_pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps).csv"
-        global num += 1
-    end
-end
+# fitness data has no generation 0, so remove that column name
+fitcolnames = deleteat!(copy(colnames), 3)
+
 for i in 1:n
     results = take!(resultsqueue)
     @info "Obtained result ($i/$n)" pairs(results)
-    # generate column labels
-    colnames = Any["scen", "nrep"]
-    for gen = 0:ngens
-        push!(colnames, "gen$(gen)")
-    end
-    # fitness data has no generation 0, so remove that column name
-    fitcolnames = deleteat!(copy(colnames), 3)
     for scen in 1:nscens
         CSV.write(recombcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[1+scen])), colnames); append=isfile(recombcsvfile))
         CSV.write(outcrosscsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[4+scen])), colnames); append=isfile(outcrosscsvfile))

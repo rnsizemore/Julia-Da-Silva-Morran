@@ -1,72 +1,64 @@
 using CSV
 using DataFrames
 using Plots
+using Statistics
 # call syntax
-# julia .\DaSilvaMorranPlots.jl 2025 01 26 0.1 1 2 1.0 1000 30 3 2 1
-# julia .\DaSilvaMorranPlots.jl year month day pnd recomb treatment h nreps ngens nscens fitscen
+# julia .\DaSilvaMorranPlots.jl 2025 01 26 1 1 0.1 1 2 1.0 1000 30 3 2 1
+# julia .\DaSilvaMorranPlots.jl year month day hour minute pnd recomb treatment h nreps ngens nscens fitscen
 year = ARGS[1]
 month = ARGS[2]
 day = ARGS[3]
-pnd = parse(Float64,ARGS[4])
-recomb = parse(Int,ARGS[5])
-treatment = parse(Int,ARGS[6])
-h = parse(Float64,ARGS[7])
-nreps = parse(Int,ARGS[8])
-ngens = parse(Int,ARGS[9])
-nscens = parse(Int,ARGS[10])
-num = parse(Int, ARGS[11])
+hour = ARGS[4]
+minute = ARGS[5]
+pnd = parse(Float64,ARGS[6])
+recomb = parse(Int,ARGS[7])
+treatment = parse(Int,ARGS[8])
+h = parse(Float64,ARGS[9])
+nreps = parse(Int,ARGS[10])
+ngens = parse(Int,ARGS[11])
+nscens = parse(Int,ARGS[12])
+num = parse(Int, ARGS[13])
 #pnd, recomb, treatment, h, nreps, ngens = 0.1, 1, 2, 1.0, 100, 30
 
-# check if file name will have count
-if num != 1
-    recombcsvname = "$(year)-$(month)-$(day)_genrecomb_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    recombcsvpath = joinpath(@__DIR__,  "$(recombcsvname).csv")
-    outcrosscsvname = "$(year)-$(month)-$(day)_outcross_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    outcrosscsvpath = joinpath(@__DIR__,  "$(outcrosscsvname).csv")
-    malefitcsvname = "$(year)-$(month)-$(day)_malefit_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    malefitcsvpath = joinpath(@__DIR__,  "$(malefitcsvname).csv")
-    hermfitcsvname = "$(year)-$(month)-$(day)_hermfit_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    hermfitcsvpath = joinpath(@__DIR__,  "$(hermfitcsvname).csv")
-else
-    recombcsvname = "$(year)-$(month)-$(day)_$(num)_genrecomb_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    recombcsvpath = joinpath(@__DIR__,  "$(recombcsvname).csv")
-    outcrosscsvname = "$(year)-$(month)-$(day)_$(num)_outcross_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    outcrosscsvpath = joinpath(@__DIR__,  "$(outcrosscsvname).csv")
-    malefitcsvname = "$(year)-$(month)-$(day)_$(num)_malefit_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    malefitcsvpath = joinpath(@__DIR__,  "$(malefitcsvname).csv")
-    hermfitcsvname = "$(year)-$(month)-$(day)_$(num)_hermfit_pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)";
-    hermfitcsvpath = joinpath(@__DIR__,  "$(hermfitcsvname).csv")
-end
+date = "$(year)-$(month)-$(day)-$(hour)-$(minute)"
+plotname = "pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)"
 
-# bring in data as a matrix
-recomb_data = CSV.File(recombcsvpath) |> Tables.matrix
-outcross_data = CSV.File(outcrosscsvpath) |> Tables.matrix
-malefit_data = CSV.File(malefitcsvpath) |> Tables.matrix
-hermfit_data = CSV.File(hermfitcsvpath) |> Tables.matrix
+recombcsvname = "$(date)_genrecomb_$(plotname)";
+recombcsvpath = joinpath(@__DIR__,  "$(recombcsvname).csv")
+outcrosscsvname = "$(date)_outcross_$(plotname)";
+outcrosscsvpath = joinpath(@__DIR__,  "$(outcrosscsvname).csv")
+malefitcsvname = "$(date)_malefit_$(plotname)";
+malefitcsvpath = joinpath(@__DIR__,  "$(malefitcsvname).csv")
+hermfitcsvname = "$(date)_hermfit_$(plotname)";
+hermfitcsvpath = joinpath(@__DIR__,  "$(hermfitcsvname).csv")
 
-# initalize averages array (3 rows for the 3 scenarios)
-recomb_averages = zeros(Float64, ngens+1, 3)
-outcross_averages = zeros(Float64, ngens+1, 3)
-malefit_averages = zeros(Float64, ngens, 3)
-hermfit_averages = zeros(Float64, ngens, 3)
-for i = 1:nscens
-    # save every third row of data to get only scen i
-    recomb_scen_data = recomb_data[i:nscens:(nreps*nscens), 3:(ngens+3)]
-    outcross_scen_data = outcross_data[i:nscens:(nreps*nscens), 3:(ngens+3)]
-    malefit_scen_data = malefit_data[i:nscens:(nreps*nscens), 3:(ngens+2)]
-    hermfit_scen_data = hermfit_data[i:nscens:(nreps*nscens), 3:(ngens+2)]
-    for j = 1:nreps
-        recomb_averages[:, i] .= recomb_averages[:, i] .+ recomb_scen_data[j, :]
-        outcross_averages[:, i] .= outcross_averages[:, i] .+ outcross_scen_data[j, :]
-        malefit_averages[:, i] .= malefit_averages[:, i] .+ malefit_scen_data[j, :]
-        hermfit_averages[:, i] .= hermfit_averages[:, i] .+ hermfit_scen_data[j, :]
+# bring in data as a DataFrame
+recomb_data = CSV.read(recombcsvpath, DataFrame)
+outcross_data = CSV.read(outcrosscsvpath, DataFrame)
+malefit_data = CSV.read(malefitcsvpath, DataFrame)
+hermfit_data = CSV.read(hermfitcsvpath, DataFrame)
+
+# initalize averages dataframe
+recomb_averages = DataFrame()
+outcross_averages = DataFrame()
+malefit_averages = DataFrame()
+hermfit_averages = DataFrame()
+
+for j = 0:ngens
+    # groups and calculates average by scenario, then adds column to averages dataframe
+    col = "gen$(j)"
+    recomb_grouped = combine(groupby(recomb_data, :scen), col => mean => col)
+    global recomb_averages[:, col] = recomb_grouped[:, col]
+    outcross_grouped = combine(groupby(outcross_data, :scen), col => mean => col)
+    global outcross_averages[:, col] = outcross_averages[:, col] = outcross_grouped[:, col]
+    # exclude gen 0 for fitness
+    if j != 0
+        malefit_grouped = combine(groupby(malefit_data, :scen), col => mean => col)
+        global malefit_averages[:, col] = malefit_averages[:, col] = malefit_grouped[:, col]
+        hermfit_grouped = combine(groupby(hermfit_data, :scen), col => mean => col)
+        global hermfit_averages[:, col] = hermfit_averages[:, col] = hermfit_grouped[:, col]
     end
 end
-# divide values of averages array by nreps to calculate average
-recomb_averages .= recomb_averages ./ nreps
-outcross_averages .= outcross_averages ./ nreps
-malefit_averages .= malefit_averages ./ nreps
-hermfit_averages .= hermfit_averages ./ nreps
 
 dir_name = "pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)"
 if !isdir(dir_name)
@@ -77,23 +69,31 @@ gr()
 labels = reshape(map((x,y)->"N=$x, r=$y",[1500, 750, 750],[0.5, 0.5, 0.1]),1,nscens)
 
 # outcrossing plot
-outcrossPlot = plot(0:ngens, outcross_averages,label=labels,title="Outcrossing Rate, $(nreps) Replicates",
+# plots does not support dataframes by default, so its converted to a Matrix
+# potential todo: use StatsPlots package, which does support dataframes
+# also potential todo: change how averages dataframe is made to avoid having to use permutedims()
+outcrossPlot_data = Matrix(permutedims(outcross_averages))
+outcrossPlot = plot(0:ngens,outcrossPlot_data,label=labels,title="Outcrossing Rate, $(nreps) Replicates",
                 titlefont = font(14), xlabel="Generation",ylabel="Outcrossing Frequency",ylims=(0,1));
 #display(outcrossPlot)
 outcross_plot_file = "outcross_ngens$(ngens)_nreps$(nreps)"
 savefig(joinpath(dir_name, "$(outcross_plot_file).pdf"))
+
 # recombination allele plot
-recombPlot = plot(0:ngens, recomb_averages,label=labels, title="Recombination Allele Frequency, $(nreps) Replicates",
+recombPlot_data = Matrix(permutedims(recomb_averages))
+recombPlot = plot(0:ngens,recombPlot_data,label=labels, title="Recombination Allele Frequency, $(nreps) Replicates",
                 titlefont = font(14), xlabel="Generation",ylabel="Recombination Allele Frequency",ylims=(0,1));
 recomb_plot_file = "genrecomb_ngens$(ngens)_nreps$(nreps)"
 savefig(joinpath(dir_name, "$(recomb_plot_file).pdf"))
-#display(recombPlot)
+
 # male and hermaphrodite fitness plot
-# fitplot = nothing # clear existing plot
+# fitscen is which scenario to plot
 fitscen = parse(Int, ARGS[12])
-fitplot = plot(1:ngens, malefit_averages[:, fitscen],label="Males",title="Male and Hermaphrodite Fitness, $(nreps) Replicates",
+malefitplot_data = Matrix(permutedims(malefit_averages))
+hermfitplot_data = Matrix(permutedims(hermfit_averages))
+fitplot = plot(1:ngens,malefitplot_data[:, fitscen],label="Males",title="Male and Hermaphrodite Fitness, $(nreps) Replicates",
                 titlefont = font(14), xlabel="Generation",ylabel="Average Fitness",ylims=(0,1));
-plot!(hermfit_averages[:, fitscen], label = "Hermaphrodites")
+plot!(hermfitplot_data[:, fitscen], label = "Hermaphrodites")
 fit_plot_file = "fitness_ngens$(ngens)_nreps$(nreps)"
 savefig(joinpath(dir_name, "$(fit_plot_file).pdf"))
 #display(fitplot)
