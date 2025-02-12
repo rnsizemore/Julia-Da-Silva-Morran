@@ -56,11 +56,11 @@ end
 col_names = collect(Symbol("gen$t") for t in 0:ngens)
 recomb_averages = combine(groupby(recomb_data,:scen), col_names .=> mean .=> col_names)
 if model == 1
-    outcross_averages[:, col] = combine(groupby(outcross_data,:scen), col_names .=> mean .=> col_names)
+    outcross_averages = combine(groupby(outcross_data,:scen), col_names .=> mean .=> col_names)
     # exclude gen 0 for fitness
     fit_col_names = collect(Symbol("gen$t") for t in 1:ngens)
-    malefit_averages[:, col] = combine(groupby(malefit_data,:scen), fit_col_names .=> mean .=> fit_col_names)
-    hermfit_averages[:, col] = combine(groupby(hermfit_data,:scen), fit_col_names .=> mean .=> fit_col_names)
+    malefit_averages = combine(groupby(malefit_data,:scen), fit_col_names .=> mean .=> fit_col_names)
+    hermfit_averages = combine(groupby(hermfit_data,:scen), fit_col_names .=> mean .=> fit_col_names)
 end
 
 dir_name = "pnd$(pnd)_recomb$(recomb)_treatment$(treatment)_h$(h)"
