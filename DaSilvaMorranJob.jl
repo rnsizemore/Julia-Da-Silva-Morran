@@ -1,21 +1,23 @@
 include("DaSilvaMorranDistributed.jl")
 
 # order of parameters
-# julia .\DaSilvaMorranJob.jl workers nreps treatment s pnd ngens pnd h h_recomb recomb_scen
+# julia .\DaSilvaMorranJob.jl workers nreps treatment s pnd ngens pnd h h_recomb recomb_scen model
 
 # base parameters:
-# julia .\DaSilvaMorranJob.jl 5 100 2 0.8 0.0001 30 0.1 1 1 1
+# julia .\DaSilvaMorranJob.jl 5 100 2 0.8 0.0001 30 0.1 1 1 1 1
 #                      workers^       s^   u^          h^   ^recomb_scen
 #                          nreps^           ngens^        ^h_recomb
-#                          treatment^             pnd^        
-@everywhere using Plots
-@everywhere using Dates
-@everywhere using Statistics
-@everywhere using CSV
-@everywhere using DataFrames
-@everywhere using Random
-@everywhere using Distributions
-@everywhere using StatsBase
+#                          treatment^             pnd^        ^ model
+@everywhere begin
+    using Plots
+    using Dates
+    using Statistics
+    using CSV
+    using DataFrames
+    using Random
+    using Distributions
+    using StatsBase
+end
 
 # define nreps from user input
 nreps = parse(Int,ARGS[2])
@@ -29,9 +31,11 @@ pnd = parse(Float64,ARGS[7])           # prob. of x-chromosome nondisjunction
 h = parse(Float64,ARGS[8])               # dominance of alleles
 h_recomb = parse(Float64,ARGS[9])      # dominance of recombination allele
 recomb_scen = parse(Int,ARGS[10])     # 0 - recomb. allele has no effect 1 - recomb. allele has effect
+models = ["work_function_new", "work_function_old"]
+model = models[parse(Int, ARGS[11])]
 nscens = 3
 
-@everywhere function work_function(treatment, nrep, s, u, ngens, pnd, h, h_recomb, recomb_scen, nscens)
+@everywhere function work_function_new(treatment, nrep, s, u, ngens, pnd, h, h_recomb, recomb_scen, nscens)
     IL = 30             # num. of host interaction loci
     L = IL + 1          # num. of host loci
     initfr = 0.2        # inital freq. of males
@@ -364,13 +368,218 @@ nscens = 3
     return (nrep=nrep, genrecomb1=genrecomb[:, 1], genrecomb2=genrecomb[:, 2], genrecomb3=genrecomb[:, 3], outcross1=outcross[:, 1], outcross2=outcross[:, 2], outcross3=outcross[:, 3], male1=w_male[:, 1], male2=w_male[:, 2], male3=w_male[:, 3], herm1=w_herm[:, 1], herm2=w_herm[:, 2], herm3=w_herm[:, 3])
 end
 
+@everywhere function work_function_old(treatment, nrep, s, u, ngens, nscens)
+    # parameters
+    IL = 30             # num. of host interaction loci
+    L = IL + 1          # num. of host loci
+    initfr = 0.2        # inital freq. of recomb. allele
+    standing = true     # create standing genetic variation
+    NArray = [1500, 750, 750]            # host pop.
+    rArray = [0.5, 0.5, 0.1]             # recombination rate
+    npgens = 1          # parasite gen. per host gen.
+    
+    # variables
+    hosts = zeros(Int, NArray[1], L)                                    # holds value for each locus in each individual
+    hostsnew = zeros(Int, NArray[1], L)                                 # holds hosts value for next generation
+    temp = Array{Int}(undef, L)                                 # temp holder for an individuals genes
+    host0 = zeros(L)                                            # freq. of mutant allele in population at each locus
+    host1 = zeros(L)                                            # freq. of wild type allele in population at each locus
+    para0 = zeros(L-1)                                            # freq. of parasite mutant allele
+    para1 = zeros(L-1)                                            # freq. of parasite wild type allele
+    w0 = Array{Float64}(undef, L)                                 # host allele fitness for mutant alleles
+    w1 = Array{Float64}(undef, L)                                 # host allele fitness for wild type alleles
+    wp0 = Array{Float64}(undef, L-1)                                # parasite mutant allele fitnesses
+    wp1 = Array{Float64}(undef, L-1)                                # parasite wild type allele fitnesses
+    wp_bar = Array{Float64}(undef, L-1)                             # parasite mean fitness
+    w = Array{Float64}(undef, NArray[1])                                    # individual host fitnesses
+    fix = false                                                 # flag for fixation of recombination allele
+    nfix = 0                                                    # number of simulations where recombination allele fixates
+    gfix = 0                                    # stores the generation where recombination allele comes to fixation
+    genrecomb = zeros(Float64, ngens+1, nscens)                        # average freq. of recombination allele at each generation over the replicates
+    hostMutantAlleleFreq = Array{Float64}(undef, ngens+1, L)   # host mutant allele freq. for each generation of a simulation run
+    iFixCount = zeros(Int, L-1)                          # number of simulation runs where each locus has fixation
+    iPrevFix = Array{Int}(undef, L)                           # the last fixed allele for each host interaction locus
+    for scen in 1:nscens
+        # local initialization steps for each scenario
+        N = NArray[scen]
+        r = rArray[scen]
+        print("Scenario $scen\n")
+        print("N=$N, r=$r\n")
+        nfix = 0
+        hostsnew = zeros(Int, N, L)
+        hosts = zeros(Int, N, L)
+        for i = 1:Int(N*initfr) # put inital recomb allele in with initfr freq.
+            hosts[i, 1] = 1
+        end
+        random_genomes = rand(Float64, Int(N/2))    # random number for inital freq of mutant allele
+        if(standing) # create standing variation
+            for i = 2:L
+                random_genomes = rand(Float64, Int(N/2))
+                for j = 1:Int(N/2)
+                    hosts[Int(round(random_genomes[j]*N, RoundDown)) + 1, i] = 1  # make random_genomes proportion of individuals have mutant alleles
+                end
+            end
+        end
+
+        for i = 1:L     # each item in host1 is freq. of mutant allele at each locus, each item host0 is wild type allele freq. at each locus
+            host1[i] = sum(hosts[:, i])/N
+            host0[i] = 1.0 - host1[i]
+        end
+        # initialization of data collection structures
+        gen = 1
+        genrecomb[gen, scen] = host1[1]         # add generation 0's recomb allele freq. to genrecomb
+        if genrecomb[gen,scen]>1 || genrecomb[gen,scen]<0
+            error("Out of range value in genrecomb[$gen,$scen]")
+        end
+        hostMutantAlleleFreq[gen, :] = host1  # store mutant allele freq. at generation 0
+        # intitalize wild type allele at fixation in parasite population
+        para0 .= 1
+        para1 .= 0
+
+        fix = false                 # reset fixation of recomb allele
+        iPrevFix = zeros(Int, L)  # intitalize last fixed allele as 0
+
+        for gen = 1:ngens # loop through generations
+            #print("\n Gen #", gen, "\n")
+            #print("Start of gen: ", sum(hosts[:, 1])/N[scen], "\n")
+            if treatment != 0
+                #for i = 2:L
+                    @. w0[2:L] = 1 - s*para0  # wild type allele fitness
+                    @. w1[2:L] = 1 - s*para1  # mutant allele fitness
+                #end
+                w = ones(N)          # intitalize individual fitnesses
+                for i = 1:N
+                    for j = 2:L
+                        w[i] = w[i] * ( w0[j] * ( 1 - hosts[i, j] ) + w1[j] * hosts[i, j] ) # calculate individual fitnesses
+                    end
+                end
+            else
+                w = ones(N)
+            end
+
+            #for i = 2:L   # calculate parasite fitnesses
+                @. wp0 = 1.0 - s*host1[2:L]
+                @. wp1 = 1.0 - s*host0[2:L]
+            #end
+
+            # host reproduction and selection
+            wMax = maximum(w)
+            for i = 1:N
+                w[i] = w[i] / wMax  # calculate relative fitnesses
+            end
+            #print("\n Wild type fitness: ", w0[1], "\n")
+            #print(" Wild type parasite fitness: ", wp0[1], "\n \n")
+            for i = 1:N
+                while(true)
+                    j = rand(1:N)
+                    if(rand() <= w[j])
+                        hostsnew[i, :] = hosts[j, :]
+                        break
+                    end
+                end
+            end
+            
+            hosts = hostsnew
+            #print("After reproduction: ", sum(hosts[:, 1])/N[scen], "\n")
+            # mutation
+            for i = 1:N
+                for j = 1:L # loop through loci in all individuals
+                    if(rand() <= u) # if random num is less than mutation rate
+                        hosts[i, j] = abs(hosts[i, j] - 1)  # flip the allele of the locus
+                    end
+                end
+            end
+            #print("After mutation: ", sum(hosts[:, 1])/N[scen], "\n")
+            # recombination
+            for i = 1:2:N
+                if(hosts[i, 1] == 1 || hosts[i + 1, 1] == 1) # loop through pairs of hosts, checking for recombination allele
+                    for j = 1:L-1
+                        if(rand() <= r) # 0.5 chance at each locus to swap between pairs
+                            temp = hosts[i, :]
+                            hosts[i, j+1:L] = hosts[i+1, j+1:L]
+                            hosts[i + 1, j+1:L] = temp[j+1:L]
+                        end
+                    end
+                end
+            end
+            #print("After recombination: ", sum(hosts[:, 1])/N, "\n")
+            # parasites
+            #for i = 1:L-1   # calculate parasite fitness
+                @. wp0 = 1 - s*host1[2:L]
+                @. wp1 = 1 - s*host0[2:L]
+            #end
+            if treatment == 2
+                for pgen = 1:npgens
+                    #for i = 1:L-1
+                        @. wp_bar = wp0 * para0 + wp1 * para1  # mean parasite fitness
+                        @. para0 = para0 * wp0 / wp_bar         # freq. of parasite wild type alleles
+                        @. para1 = 1.0 - para0                     # freq. of parasite mutant alleles
+
+                        @. para0 = para0 * (1.0 - u) + para1 * u # wild type allele freq. after mutation
+                        @. para1 = 1.0 - para0                     # mutant type allele freq. after mutation
+                    #end
+                end
+            end
+
+            # fixation
+            for i = 1:L     # each item in host1 is freq. of mutant allele at each locus, each item host0 is wild type allele freq. at each locus
+                host1[i] = sum(hosts[:, i])/N
+                host0[i] = 1.0 - host1[i]
+            end
+            hostMutantAlleleFreq[gen+1, :] = host1  # store mutant allele freq.
+            frecomb = host1[1]     # store ending freq. of recombination allele
+            
+            if(!fix && host1[1] > 0.99)
+                fix = true
+                nfix += 1
+                gfix = gen
+                #break
+            end
+            
+            for i = 2:L
+                if(host1[i] > 0.99 && iPrevFix[i] == 0)
+                    iFixCount = iFixCount .+ 1
+                    iPrevFix[i] = 1
+                end
+                if(host0[i] > 0.99 && iPrevFix[i] == 1)
+                    iFixCount = iFixCount .+ 1
+                    iPrevFix[i] = 0
+                end
+            end
+            genrecomb[gen+1, scen] = host1[1]         # add this generation's recomb allele freq. to genrecomb
+            if genrecomb[gen+1,scen]>1 || genrecomb[gen+1,scen]<0
+                error("Out of range value in genrecomb[$(gen+1),$scen]")
+            end
+            #print("End of gen: ", sum(hosts[:, 1])/N, "\n")
+        end
+
+        println("\nFixations at Host Interaction Loci")
+        println("No. of fixations/locus/gen: ",  sum(iFixCount) / (IL) / (ngens+1))
+        println("Apparent no. of fixations/locus/gen: ", count(hostMutantAlleleFreq[ngens+1, 2:L] .> 0.99) / (IL) / (ngens+1), "\n")
+    
+        println("Fixation of Recombination Allele")
+        println("Prop. of replicates with fixation: ", nfix)
+        if(nfix > 0)
+            println("Mean no. of generations to fixation: ", sum(gfix) / nfix)
+        end
+        println("Mean freq of recomb allele: ", mean(genrecomb))
+        println("\n")
+    end
+    return (nrep=nrep, genrecomb1=genrecomb[:, 1], genrecomb2=genrecomb[:, 2], genrecomb3=genrecomb[:, 3])
+end
 # start running the event loop on workers
 start_workers()
 
 # array of job calls
 jobs = []
-for i = 1:nreps
-    push!(jobs, (:work_function, treatment, i, s, u, ngens, pnd, h, h_recomb, recomb_scen, nscens))
+if model == "work_function_new"
+    for i = 1:nreps
+        push!(jobs, (:work_function_new, treatment, i, s, u, ngens, pnd, h, h_recomb, recomb_scen, nscens))
+    end
+else
+    for i = 1:nreps
+        push!(jobs, (:work_function_old, treatment, i, s, u, ngens, nscens))
+    end
 end
 
 submit_jobs(jobs)
@@ -378,31 +587,55 @@ submit_jobs(jobs)
 n = length(jobs)
 
 date = Dates.format(now(), "YYYY-mm-dd-HH-MM")
-plotname = "pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)"
 
-recombcsvfile = "$(date)_genrecomb_$(plotname).csv"
-outcrosscsvfile = "$(date)_outcross_$(plotname).csv"
-malefitcsvfile = "$(date)_malefit_$(plotname).csv"
-hermfitcsvfile = "$(date)_hermfit_$(plotname).csv"
+# saving new model results
+if model == "work_function_new"
+    plotname = "pnd$(pnd)_recomb$(recomb_scen)_treatment$(treatment)_h$(h)_ngens$(ngens)_nreps$(nreps)"
+    recombcsvfile = "$(date)_genrecomb_$(plotname).csv"
+    outcrosscsvfile = "$(date)_outcross_$(plotname).csv"
+    malefitcsvfile = "$(date)_malefit_$(plotname).csv"
+    hermfitcsvfile = "$(date)_hermfit_$(plotname).csv"
 
-# generate column labels
-colnames = Any["scen", "nrep"]
-for gen = 0:ngens
-    push!(colnames, "gen$(gen)")
-end
-# fitness data has no generation 0, so remove that column name
-fitcolnames = deleteat!(copy(colnames), 3)
+    # generate column labels
+    colnames = Any["scen", "nrep"]
+    for gen = 0:ngens
+        push!(colnames, "gen$(gen)")
+    end
+    # fitness data has no generation 0, so remove that column name
+    fitcolnames = deleteat!(copy(colnames), 3)
 
-for i in 1:n
-    results = take!(resultsqueue)
-    @info "Obtained result ($i/$n)" pairs(results)
-    for scen in 1:nscens
-        CSV.write(recombcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[1+scen])), colnames); append=isfile(recombcsvfile))
-        CSV.write(outcrosscsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[4+scen])), colnames); append=isfile(outcrosscsvfile))
-        CSV.write(malefitcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[7+scen])), fitcolnames); append=isfile(malefitcsvfile))
-        CSV.write(hermfitcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[10+scen])), fitcolnames); append=isfile(hermfitcsvfile))
+    for i in 1:n
+        results = take!(resultsqueue)
+        @info "Obtained result ($i/$n)" pairs(results)
+        for scen in 1:nscens
+            CSV.write(recombcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[1+scen])), colnames); append=isfile(recombcsvfile))
+            CSV.write(outcrosscsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[4+scen])), colnames); append=isfile(outcrosscsvfile))
+            CSV.write(malefitcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[7+scen])), fitcolnames); append=isfile(malefitcsvfile))
+            CSV.write(hermfitcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[10+scen])), fitcolnames); append=isfile(hermfitcsvfile))
+        end
     end
 end
+
+#saving old model results
+if model == "work_function_old"
+    plotname = "treatment$(treatment)_ngens$(ngens)_nreps$(nreps)"
+    recombcsvfile = "$(date)_old_genrecomb_$(plotname).csv"
+
+    # generate column labels
+    colnames = Any["scen", "nrep"]
+    for gen = 0:ngens
+        push!(colnames, "gen$(gen)")
+    end
+
+    for i in 1:n
+        results = take!(resultsqueue)
+        @info "Obtained result ($i/$n)" pairs(results)
+        for scen in 1:nscens
+            CSV.write(recombcsvfile, DataFrame(permutedims(vcat([scen,results.nrep],results[1+scen])), colnames); append=isfile(recombcsvfile))
+        end
+    end
+end
+
 stop_workers()
 #=
 # reading csv
